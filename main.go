@@ -1,16 +1,21 @@
 package main
 
 import (
+	"github.com/RamillIslamov/go-from-scratch-project-278/internal/config"
+	"github.com/RamillIslamov/go-from-scratch-project-278/internal/db"
+	"github.com/RamillIslamov/go-from-scratch-project-278/internal/handler"
+	"github.com/RamillIslamov/go-from-scratch-project-278/internal/repository"
+	"github.com/RamillIslamov/go-from-scratch-project-278/internal/service"
 	"log"
-	"os"
 	"time"
 
 	"github.com/getsentry/sentry-go"
 	sentrygin "github.com/getsentry/sentry-go/gin"
 	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
 )
 
-func setupRouter() *gin.Engine {
+func setupRouter(linksHandler *handler.LinksHandler) *gin.Engine {
 	router := gin.Default()
 	router.Use(sentrygin.New(sentrygin.Options{}))
 
@@ -22,14 +27,25 @@ func setupRouter() *gin.Engine {
 		panic("test panic")
 	})
 
+	api := router.Group("/api")
+	{
+		api.GET("/links", linksHandler.ListLinks)
+		api.POST("/links", linksHandler.CreateLink)
+		api.GET("/links/:id", linksHandler.GetLink)
+		api.PUT("/links/:id", linksHandler.UpdateLink)
+		api.DELETE("/links/:id", linksHandler.DeleteLink)
+	}
+
 	return router
 }
 
 func main() {
-	dsn := os.Getenv("SENTRY_DSN")
-	if dsn != "" {
+	_ = godotenv.Load()
+	cfg := config.Load()
+
+	if cfg.SentryDSN != "" {
 		err := sentry.Init(sentry.ClientOptions{
-			Dsn: dsn,
+			Dsn: cfg.SentryDSN,
 		})
 		if err != nil {
 			log.Printf("sentry init failed: %v", err)
@@ -37,14 +53,23 @@ func main() {
 		defer sentry.Flush(2 * time.Second)
 	}
 
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
+	dbConn, err := repository.OpenDB(cfg.DatabaseURL)
+	if err != nil {
+		log.Fatal(err)
 	}
+	defer func() {
+		if err := dbConn.Close(); err != nil {
+			log.Printf("failed to close db connection: %v", err)
+		}
+	}()
 
-	router := setupRouter()
+	queries := db.New(dbConn)
+	linksService := service.NewLinksService(queries, cfg.AppBaseURL)
+	linksHandler := handler.NewLinksHandler(linksService)
 
-	if err := router.Run(":" + port); err != nil {
+	router := setupRouter(linksHandler)
+
+	if err := router.Run(":" + cfg.Port); err != nil {
 		log.Fatal(err)
 	}
 }
