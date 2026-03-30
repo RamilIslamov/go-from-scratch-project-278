@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -39,7 +40,7 @@ func TestMain(m *testing.M) {
 
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {
-		os.Stderr.WriteString("DATABASE_URL is empty\n")
+		fmt.Fprintln(os.Stderr, "DATABASE_URL is empty")
 		os.Exit(1)
 	}
 
