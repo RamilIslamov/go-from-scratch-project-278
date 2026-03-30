@@ -39,7 +39,8 @@ func TestMain(m *testing.M) {
 
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {
-		panic("DATABASE_URL is empty")
+		os.Stderr.WriteString("DATABASE_URL is empty\n")
+		os.Exit(1)
 	}
 
 	dbConn, err := repository.OpenDB(databaseURL)
