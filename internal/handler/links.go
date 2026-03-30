@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/RamillIslamov/go-from-scratch-project-278/internal/service"
 	"net/http"
 	"strconv"
@@ -24,13 +26,21 @@ type linkRequest struct {
 }
 
 func (h *LinksHandler) ListLinks(c *gin.Context) {
-	links, err := h.service.List()
+	from, to, err := parseRange(c.Query("range"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid range"})
+		return
+	}
+
+	result, err := h.service.List(from, to)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list links"})
 		return
 	}
 
-	c.JSON(http.StatusOK, links)
+	c.Header("Accept-Ranges", "links")
+	c.Header("Content-Range", fmt.Sprintf("links %d-%d/%d", from, to, result.Total))
+	c.JSON(http.StatusOK, result.Links)
 }
 
 func (h *LinksHandler) GetLink(c *gin.Context) {
@@ -147,4 +157,28 @@ func (h *LinksHandler) DeleteLink(c *gin.Context) {
 
 func parseID(raw string) (int64, error) {
 	return strconv.ParseInt(raw, 10, 64)
+}
+
+func parseRange(raw string) (int32, int32, error) {
+	if strings.TrimSpace(raw) == "" {
+		return 0, 9, nil
+	}
+
+	var values []int32
+	if err := json.Unmarshal([]byte(raw), &values); err != nil {
+		return 0, 0, err
+	}
+
+	if len(values) != 2 {
+		return 0, 0, fmt.Errorf("range must contain 2 values")
+	}
+
+	from := values[0]
+	to := values[1]
+
+	if from < 0 || to < 0 || to < from {
+		return 0, 0, fmt.Errorf("invalid range")
+	}
+
+	return from, to, nil
 }

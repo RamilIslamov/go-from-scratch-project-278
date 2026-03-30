@@ -348,3 +348,81 @@ func TestDeleteLink_NotFound(t *testing.T) {
 		t.Fatalf("unexpected error: %s", got.Error)
 	}
 }
+
+func TestListLinks_WithRange(t *testing.T) {
+	resetDB(t)
+
+	for i := 0; i < 15; i++ {
+		body := []byte(fmt.Sprintf(`{"original_url":"https://example.com/%d","short_name":"s%d"}`, i, i))
+		w := doRequest(t, http.MethodPost, "/api/links", body)
+		if w.Code != http.StatusCreated {
+			t.Fatalf("create failed: status=%d body=%s", w.Code, w.Body.String())
+		}
+	}
+
+	w := doRequest(t, http.MethodGet, "/api/links?range=[0,9]", nil)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d, body=%s", http.StatusOK, w.Code, w.Body.String())
+	}
+
+	contentRange := w.Header().Get("Content-Range")
+	if contentRange != "links 0-9/15" {
+		t.Fatalf("unexpected Content-Range: %s", contentRange)
+	}
+
+	var got []linkResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	if len(got) != 10 {
+		t.Fatalf("expected 10 items, got %d", len(got))
+	}
+
+	if got[0].ID != 1 {
+		t.Fatalf("expected first id 1, got %d", got[0].ID)
+	}
+	if got[9].ID != 10 {
+		t.Fatalf("expected last id 10, got %d", got[9].ID)
+	}
+}
+
+func TestListLinks_WithOffsetRange(t *testing.T) {
+	resetDB(t)
+
+	for i := 0; i < 11; i++ {
+		body := []byte(fmt.Sprintf(`{"original_url":"https://example.com/%d","short_name":"s%d"}`, i, i))
+		w := doRequest(t, http.MethodPost, "/api/links", body)
+		if w.Code != http.StatusCreated {
+			t.Fatalf("create failed: status=%d body=%s", w.Code, w.Body.String())
+		}
+	}
+
+	w := doRequest(t, http.MethodGet, "/api/links?range=[5,9]", nil)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d, body=%s", http.StatusOK, w.Code, w.Body.String())
+	}
+
+	contentRange := w.Header().Get("Content-Range")
+	if contentRange != "links 5-9/11" {
+		t.Fatalf("unexpected Content-Range: %s", contentRange)
+	}
+
+	var got []linkResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	if len(got) != 5 {
+		t.Fatalf("expected 5 items, got %d", len(got))
+	}
+
+	if got[0].ID != 6 {
+		t.Fatalf("expected first id 6, got %d", got[0].ID)
+	}
+	if got[4].ID != 10 {
+		t.Fatalf("expected last id 10, got %d", got[4].ID)
+	}
+}

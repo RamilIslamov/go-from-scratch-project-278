@@ -39,6 +39,13 @@ type LinksService struct {
 	appBaseURL string
 }
 
+type ListLinksResult struct {
+	Links []Link
+	Total int64
+	From  int32
+	To    int32
+}
+
 func NewLinksService(queries *db.Queries, appBaseURL string) *LinksService {
 	return &LinksService{
 		queries:    queries,
@@ -46,10 +53,32 @@ func NewLinksService(queries *db.Queries, appBaseURL string) *LinksService {
 	}
 }
 
-func (s *LinksService) List() ([]Link, error) {
-	rows, err := s.queries.ListLinks(context.Background())
+func (s *LinksService) List(from, to int32) (ListLinksResult, error) {
+	total, err := s.queries.CountLinks(context.Background())
 	if err != nil {
-		return nil, err
+		return ListLinksResult{}, err
+	}
+
+	if total == 0 {
+		return ListLinksResult{
+			Links: []Link{},
+			Total: 0,
+			From:  from,
+			To:    to,
+		}, nil
+	}
+
+	limit := to - from + 1
+	if limit <= 0 {
+		limit = 10
+	}
+
+	rows, err := s.queries.ListLinks(context.Background(), db.ListLinksParams{
+		Limit:  limit,
+		Offset: from,
+	})
+	if err != nil {
+		return ListLinksResult{}, err
 	}
 
 	result := make([]Link, 0, len(rows))
@@ -63,7 +92,12 @@ func (s *LinksService) List() ([]Link, error) {
 		})
 	}
 
-	return result, nil
+	return ListLinksResult{
+		Links: result,
+		Total: total,
+		From:  from,
+		To:    to,
+	}, nil
 }
 
 func (s *LinksService) Get(id int64) (Link, error) {
