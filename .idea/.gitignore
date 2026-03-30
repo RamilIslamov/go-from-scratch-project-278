@@ -11,3 +11,5 @@
 *.iml
 .env
 .env.test
+node_modules/
+frontend/node_modules/
