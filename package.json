@@ -1,15 +1,16 @@
 {
   "name": "url-shortener",
   "version": "1.0.0",
-  "scripts": {
-    "frontend": "npm --prefix frontend run dev",
-    "backend": "go run main.go",
-    "dev": "concurrently \"npm run frontend\" \"npm run backend\""
-  },
+  "private": true,
   "dependencies": {
     "@hexlet/project-url-shortener-frontend": "^1.0.0"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"
+  },
+  "scripts": {
+    "frontend": "npx start-hexlet-url-shortener-frontend",
+    "backend": "go run main.go",
+    "dev": "concurrently \"npm run frontend\" \"npm run backend\""
   }
 }
