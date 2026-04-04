@@ -46,6 +46,23 @@ type ListLinksResult struct {
 	To    int32
 }
 
+type LinkVisit struct {
+	ID        int64     `json:"id"`
+	LinkID    int64     `json:"link_id"`
+	IP        string    `json:"ip"`
+	UserAgent string    `json:"user_agent"`
+	Referer   string    `json:"referer"`
+	Status    int32     `json:"status"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type ListLinkVisitsResult struct {
+	Visits []LinkVisit
+	Total  int64
+	From   int64
+	To     int64
+}
+
 func NewLinksService(queries *db.Queries, appBaseURL string) *LinksService {
 	return &LinksService{
 		queries:    queries,
@@ -199,4 +216,94 @@ func generateShortName(n int) string {
 		b[i] = alphabet[r.Intn(len(alphabet))]
 	}
 	return string(b)
+}
+
+func (s *LinksService) GetByShortName(shortName string) (Link, error) {
+	row, err := s.queries.GetLinkByShortName(context.Background(), shortName)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return Link{}, ErrNotFound
+		}
+		return Link{}, err
+	}
+
+	return Link{
+		ID:          row.ID,
+		OriginalURL: row.OriginalUrl,
+		ShortName:   row.ShortName,
+		ShortURL:    fmt.Sprintf("%s/r/%s", s.appBaseURL, row.ShortName),
+		CreatedAt:   row.CreatedAt,
+	}, nil
+}
+
+func (s *LinksService) CreateVisit(linkID int64, ip, userAgent, referer string, status int32) (LinkVisit, error) {
+	row, err := s.queries.CreateLinkVisit(context.Background(), db.CreateLinkVisitParams{
+		LinkID:    linkID,
+		Ip:        ip,
+		UserAgent: userAgent,
+		Referer:   referer,
+		Status:    status,
+	})
+	if err != nil {
+		return LinkVisit{}, err
+	}
+
+	return LinkVisit{
+		ID:        row.ID,
+		LinkID:    row.LinkID,
+		IP:        row.Ip,
+		UserAgent: row.UserAgent,
+		Referer:   row.Referer,
+		Status:    row.Status,
+		CreatedAt: row.CreatedAt,
+	}, nil
+}
+
+func (s *LinksService) ListVisits(from, to int64) (ListLinkVisitsResult, error) {
+	total, err := s.queries.CountLinkVisits(context.Background())
+	if err != nil {
+		return ListLinkVisitsResult{}, err
+	}
+
+	if total == 0 {
+		return ListLinkVisitsResult{
+			Visits: []LinkVisit{},
+			Total:  0,
+			From:   from,
+			To:     to,
+		}, nil
+	}
+
+	limit := to - from + 1
+	if limit <= 0 {
+		limit = 10
+	}
+
+	rows, err := s.queries.ListLinkVisits(context.Background(), db.ListLinkVisitsParams{
+		Limit:  int32(limit),
+		Offset: int32(from),
+	})
+	if err != nil {
+		return ListLinkVisitsResult{}, err
+	}
+
+	visits := make([]LinkVisit, 0, len(rows))
+	for _, row := range rows {
+		visits = append(visits, LinkVisit{
+			ID:        row.ID,
+			LinkID:    row.LinkID,
+			IP:        row.Ip,
+			UserAgent: row.UserAgent,
+			Referer:   row.Referer,
+			Status:    row.Status,
+			CreatedAt: row.CreatedAt,
+		})
+	}
+
+	return ListLinkVisitsResult{
+		Visits: visits,
+		Total:  total,
+		From:   from,
+		To:     to,
+	}, nil
 }

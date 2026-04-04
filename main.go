@@ -36,6 +36,8 @@ func setupRouter(linksHandler *handler.LinksHandler) *gin.Engine {
 		panic("test panic")
 	})
 
+	router.GET("/r/:code", linksHandler.Redirect)
+
 	api := router.Group("/api")
 	{
 		api.GET("/links", linksHandler.ListLinks)
@@ -43,6 +45,7 @@ func setupRouter(linksHandler *handler.LinksHandler) *gin.Engine {
 		api.GET("/links/:id", linksHandler.GetLink)
 		api.PUT("/links/:id", linksHandler.UpdateLink)
 		api.DELETE("/links/:id", linksHandler.DeleteLink)
+		api.GET("/link_visits", linksHandler.ListLinkVisits)
 	}
 
 	return router

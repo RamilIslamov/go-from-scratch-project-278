@@ -57,6 +57,7 @@ func TestMain(m *testing.M) {
 	linksHandler := handler.NewLinksHandler(linksService)
 
 	router := gin.New()
+	router.GET("/r/:code", linksHandler.Redirect)
 	api := router.Group("/api")
 	{
 		api.GET("/links", linksHandler.ListLinks)
@@ -64,6 +65,7 @@ func TestMain(m *testing.M) {
 		api.GET("/links/:id", linksHandler.GetLink)
 		api.PUT("/links/:id", linksHandler.UpdateLink)
 		api.DELETE("/links/:id", linksHandler.DeleteLink)
+		api.GET("/link_visits", linksHandler.ListLinkVisits)
 	}
 
 	testRouter = router
@@ -77,8 +79,8 @@ func TestMain(m *testing.M) {
 func resetDB(t *testing.T) {
 	t.Helper()
 
-	if _, err := testDB.Exec(`TRUNCATE TABLE links RESTART IDENTITY`); err != nil {
-		t.Fatalf("truncate links: %v", err)
+	if _, err := testDB.Exec(`TRUNCATE TABLE link_visits, links RESTART IDENTITY`); err != nil {
+		t.Fatalf("truncate tables: %v", err)
 	}
 }
 
@@ -424,5 +426,74 @@ func TestListLinks_WithOffsetRange(t *testing.T) {
 	}
 	if got[4].ID != 10 {
 		t.Fatalf("expected last id 10, got %d", got[4].ID)
+	}
+}
+
+func TestRedirect(t *testing.T) {
+	resetDB(t)
+
+	createBody := []byte(`{"original_url":"https://google.com","short_name":"g"}`)
+	createW := doRequest(t, http.MethodPost, "/api/links", createBody)
+	if createW.Code != http.StatusCreated {
+		t.Fatalf("create failed: status=%d body=%s", createW.Code, createW.Body.String())
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/r/g", nil)
+	req.Header.Set("User-Agent", "test-agent")
+	req.Header.Set("Referer", "http://localhost:5173")
+	req.RemoteAddr = "127.0.0.1:12345"
+
+	w := httptest.NewRecorder()
+	testRouter.ServeHTTP(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Fatalf("expected status %d, got %d, body=%s", http.StatusFound, w.Code, w.Body.String())
+	}
+
+	location := w.Header().Get("Location")
+	if location != "https://google.com" {
+		t.Fatalf("unexpected redirect location: %s", location)
+	}
+}
+
+func TestListLinkVisits(t *testing.T) {
+	resetDB(t)
+
+	createBody := []byte(`{"original_url":"https://google.com","short_name":"g"}`)
+	createW := doRequest(t, http.MethodPost, "/api/links", createBody)
+	if createW.Code != http.StatusCreated {
+		t.Fatalf("create failed: status=%d body=%s", createW.Code, createW.Body.String())
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/r/g", nil)
+	req.Header.Set("User-Agent", "test-agent")
+	req.Header.Set("Referer", "http://localhost:5173")
+	req.RemoteAddr = "127.0.0.1:12345"
+
+	w := httptest.NewRecorder()
+	testRouter.ServeHTTP(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Fatalf("redirect failed: status=%d body=%s", w.Code, w.Body.String())
+	}
+
+	listW := doRequest(t, http.MethodGet, "/api/link_visits?range=[0,9]", nil)
+
+	if listW.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d, body=%s", http.StatusOK, listW.Code, listW.Body.String())
+	}
+
+	contentRange := listW.Header().Get("Content-Range")
+	if contentRange != "link_visits 0-9/1" {
+		t.Fatalf("unexpected Content-Range: %s", contentRange)
+	}
+
+	var visits []map[string]any
+	if err := json.Unmarshal(listW.Body.Bytes(), &visits); err != nil {
+		t.Fatalf("unmarshal visits response: %v", err)
+	}
+
+	if len(visits) != 1 {
+		t.Fatalf("expected 1 visit, got %d", len(visits))
 	}
 }

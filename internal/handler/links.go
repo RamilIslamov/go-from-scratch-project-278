@@ -182,3 +182,51 @@ func parseRange(raw string) (int32, int32, error) {
 
 	return from, to, nil
 }
+
+func (h *LinksHandler) Redirect(c *gin.Context) {
+	code := c.Param("code")
+
+	link, err := h.service.GetByShortName(code)
+	if err != nil {
+		if errors.Is(err, service.ErrNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "link not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to find link"})
+		return
+	}
+
+	status := int32(http.StatusFound)
+
+	_, visitErr := h.service.CreateVisit(
+		link.ID,
+		c.ClientIP(),
+		c.GetHeader("User-Agent"),
+		c.GetHeader("Referer"),
+		status,
+	)
+	if visitErr != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save link visit"})
+		return
+	}
+
+	c.Redirect(http.StatusFound, link.OriginalURL)
+}
+
+func (h *LinksHandler) ListLinkVisits(c *gin.Context) {
+	from, to, err := parseRange(c.Query("range"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid range"})
+		return
+	}
+
+	result, err := h.service.ListVisits(int64(from), int64(to))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list link visits"})
+		return
+	}
+
+	c.Header("Accept-Ranges", "link_visits")
+	c.Header("Content-Range", fmt.Sprintf("link_visits %d-%d/%d", from, to, result.Total))
+	c.JSON(http.StatusOK, result.Visits)
+}
