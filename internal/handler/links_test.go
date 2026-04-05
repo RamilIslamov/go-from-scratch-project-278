@@ -175,32 +175,6 @@ func TestCreateLink_AutoGenerateShortName(t *testing.T) {
 	}
 }
 
-func TestCreateLink_Conflict(t *testing.T) {
-	resetDB(t)
-
-	first := []byte(`{"original_url":"https://site1.com","short_name":"same1"}`)
-	w1 := doRequest(t, http.MethodPost, "/api/links", first)
-	if w1.Code != http.StatusCreated {
-		t.Fatalf("expected first create status %d, got %d, body=%s", http.StatusCreated, w1.Code, w1.Body.String())
-	}
-
-	second := []byte(`{"original_url":"https://site2.com","short_name":"same1"}`)
-	w2 := doRequest(t, http.MethodPost, "/api/links", second)
-
-	if w2.Code != http.StatusConflict {
-		t.Fatalf("expected status %d, got %d, body=%s", http.StatusConflict, w2.Code, w2.Body.String())
-	}
-
-	var got errorResponse
-	if err := json.Unmarshal(w2.Body.Bytes(), &got); err != nil {
-		t.Fatalf("unmarshal error response: %v", err)
-	}
-
-	if got.Error != "short_name already exists" {
-		t.Fatalf("unexpected error: %s", got.Error)
-	}
-}
-
 func TestGetLink(t *testing.T) {
 	resetDB(t)
 
@@ -355,7 +329,7 @@ func TestListLinks_WithRange(t *testing.T) {
 	resetDB(t)
 
 	for i := 0; i < 15; i++ {
-		body := []byte(fmt.Sprintf(`{"original_url":"https://example.com/%d","short_name":"s%d"}`, i, i))
+		body := []byte(fmt.Sprintf(`{"original_url":"https://example.com/%d","short_name":"shortname%d"}`, i, i))
 		w := doRequest(t, http.MethodPost, "/api/links", body)
 		if w.Code != http.StatusCreated {
 			t.Fatalf("create failed: status=%d body=%s", w.Code, w.Body.String())
@@ -394,7 +368,7 @@ func TestListLinks_WithOffsetRange(t *testing.T) {
 	resetDB(t)
 
 	for i := 0; i < 11; i++ {
-		body := []byte(fmt.Sprintf(`{"original_url":"https://example.com/%d","short_name":"s%d"}`, i, i))
+		body := []byte(fmt.Sprintf(`{"original_url":"https://example.com/%d","short_name":"short_%d"}`, i, i))
 		w := doRequest(t, http.MethodPost, "/api/links", body)
 		if w.Code != http.StatusCreated {
 			t.Fatalf("create failed: status=%d body=%s", w.Code, w.Body.String())
@@ -432,13 +406,13 @@ func TestListLinks_WithOffsetRange(t *testing.T) {
 func TestRedirect(t *testing.T) {
 	resetDB(t)
 
-	createBody := []byte(`{"original_url":"https://google.com","short_name":"g"}`)
+	createBody := []byte(`{"original_url":"https://google.com","short_name":"google"}`)
 	createW := doRequest(t, http.MethodPost, "/api/links", createBody)
 	if createW.Code != http.StatusCreated {
 		t.Fatalf("create failed: status=%d body=%s", createW.Code, createW.Body.String())
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/r/g", nil)
+	req := httptest.NewRequest(http.MethodGet, "/r/google", nil)
 	req.Header.Set("User-Agent", "test-agent")
 	req.Header.Set("Referer", "http://localhost:5173")
 	req.RemoteAddr = "127.0.0.1:12345"
@@ -459,13 +433,13 @@ func TestRedirect(t *testing.T) {
 func TestListLinkVisits(t *testing.T) {
 	resetDB(t)
 
-	createBody := []byte(`{"original_url":"https://google.com","short_name":"g"}`)
+	createBody := []byte(`{"original_url":"https://google.com","short_name":"shorty-g"}`)
 	createW := doRequest(t, http.MethodPost, "/api/links", createBody)
 	if createW.Code != http.StatusCreated {
 		t.Fatalf("create failed: status=%d body=%s", createW.Code, createW.Body.String())
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/r/g", nil)
+	req := httptest.NewRequest(http.MethodGet, "/r/shorty-g", nil)
 	req.Header.Set("User-Agent", "test-agent")
 	req.Header.Set("Referer", "http://localhost:5173")
 	req.RemoteAddr = "127.0.0.1:12345"
@@ -495,5 +469,116 @@ func TestListLinkVisits(t *testing.T) {
 
 	if len(visits) != 1 {
 		t.Fatalf("expected 1 visit, got %d", len(visits))
+	}
+}
+
+func TestCreateLink_InvalidJSON(t *testing.T) {
+	resetDB(t)
+
+	w := doRequest(t, http.MethodPost, "/api/links", []byte(`{"original_url":`))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d, body=%s", http.StatusBadRequest, w.Code, w.Body.String())
+	}
+
+	var got map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	if got["error"] != "invalid request" {
+		t.Fatalf("unexpected error: %v", got)
+	}
+}
+
+func TestCreateLink_InvalidURL(t *testing.T) {
+	resetDB(t)
+
+	body := []byte(`{"original_url":"not-a-url","short_name":"valid123"}`)
+	w := doRequest(t, http.MethodPost, "/api/links", body)
+
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected status %d, got %d, body=%s", http.StatusUnprocessableEntity, w.Code, w.Body.String())
+	}
+
+	var got map[string]map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	if _, ok := got["errors"]["original_url"]; !ok {
+		t.Fatalf("expected original_url validation error, got %v", got)
+	}
+}
+
+func TestCreateLink_ShortNameTooShort(t *testing.T) {
+	resetDB(t)
+
+	body := []byte(`{"original_url":"https://example.com","short_name":"ab"}`)
+	w := doRequest(t, http.MethodPost, "/api/links", body)
+
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected status %d, got %d, body=%s", http.StatusUnprocessableEntity, w.Code, w.Body.String())
+	}
+
+	var got map[string]map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	if _, ok := got["errors"]["short_name"]; !ok {
+		t.Fatalf("expected short_name validation error, got %v", got)
+	}
+}
+
+func TestCreateLink_DuplicateShortNameValidationError(t *testing.T) {
+	resetDB(t)
+
+	first := []byte(`{"original_url":"https://site1.com","short_name":"same123"}`)
+	w1 := doRequest(t, http.MethodPost, "/api/links", first)
+	if w1.Code != http.StatusCreated {
+		t.Fatalf("expected first create status %d, got %d, body=%s", http.StatusCreated, w1.Code, w1.Body.String())
+	}
+
+	second := []byte(`{"original_url":"https://site2.com","short_name":"same123"}`)
+	w2 := doRequest(t, http.MethodPost, "/api/links", second)
+
+	if w2.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected status %d, got %d, body=%s", http.StatusUnprocessableEntity, w2.Code, w2.Body.String())
+	}
+
+	var got map[string]map[string]string
+	if err := json.Unmarshal(w2.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal error response: %v", err)
+	}
+
+	if got["errors"]["short_name"] != "short name already in use" {
+		t.Fatalf("unexpected errors: %v", got)
+	}
+}
+
+func TestUpdateLink_InvalidURL(t *testing.T) {
+	resetDB(t)
+
+	createBody := []byte(`{"original_url":"https://example.com/old","short_name":"old123"}`)
+	createW := doRequest(t, http.MethodPost, "/api/links", createBody)
+	if createW.Code != http.StatusCreated {
+		t.Fatalf("create failed: status=%d body=%s", createW.Code, createW.Body.String())
+	}
+
+	updateBody := []byte(`{"original_url":"bad-url","short_name":"new123"}`)
+	w := doRequest(t, http.MethodPut, "/api/links/1", updateBody)
+
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected status %d, got %d, body=%s", http.StatusUnprocessableEntity, w.Code, w.Body.String())
+	}
+
+	var got map[string]map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	if _, ok := got["errors"]["original_url"]; !ok {
+		t.Fatalf("expected original_url validation error, got %v", got)
 	}
 }

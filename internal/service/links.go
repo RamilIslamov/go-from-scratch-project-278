@@ -18,19 +18,19 @@ var ErrShortNameConflict = errors.New("short name already exists")
 
 type Link struct {
 	ID          int64     `json:"id"`
-	OriginalURL string    `json:"original_url"`
+	OriginalUrl string    `json:"original_url"`
 	ShortName   string    `json:"short_name"`
 	ShortURL    string    `json:"short_url"`
 	CreatedAt   time.Time `json:"created_at"`
 }
 
 type CreateLinkInput struct {
-	OriginalURL string `json:"original_url"`
+	OriginalUrl string `json:"original_url"`
 	ShortName   string `json:"short_name"`
 }
 
 type UpdateLinkInput struct {
-	OriginalURL string `json:"original_url"`
+	OriginalUrl string `json:"original_url"`
 	ShortName   string `json:"short_name"`
 }
 
@@ -102,7 +102,7 @@ func (s *LinksService) List(from, to int32) (ListLinksResult, error) {
 	for _, row := range rows {
 		result = append(result, Link{
 			ID:          row.ID,
-			OriginalURL: row.OriginalUrl,
+			OriginalUrl: row.OriginalUrl,
 			ShortName:   row.ShortName,
 			ShortURL:    fmt.Sprintf("%s/r/%s", s.appBaseURL, row.ShortName),
 			CreatedAt:   row.CreatedAt,
@@ -128,7 +128,7 @@ func (s *LinksService) Get(id int64) (Link, error) {
 
 	return Link{
 		ID:          row.ID,
-		OriginalURL: row.OriginalUrl,
+		OriginalUrl: row.OriginalUrl,
 		ShortName:   row.ShortName,
 		ShortURL:    fmt.Sprintf("%s/r/%s", s.appBaseURL, row.ShortName),
 		CreatedAt:   row.CreatedAt,
@@ -142,7 +142,7 @@ func (s *LinksService) Create(input CreateLinkInput) (Link, error) {
 	}
 
 	row, err := s.queries.CreateLink(context.Background(), db.CreateLinkParams{
-		OriginalUrl: input.OriginalURL,
+		OriginalUrl: input.OriginalUrl,
 		ShortName:   shortName,
 	})
 	if err != nil {
@@ -154,7 +154,7 @@ func (s *LinksService) Create(input CreateLinkInput) (Link, error) {
 
 	return Link{
 		ID:          row.ID,
-		OriginalURL: row.OriginalUrl,
+		OriginalUrl: row.OriginalUrl,
 		ShortName:   row.ShortName,
 		ShortURL:    fmt.Sprintf("%s/r/%s", s.appBaseURL, row.ShortName),
 		CreatedAt:   row.CreatedAt,
@@ -164,7 +164,7 @@ func (s *LinksService) Create(input CreateLinkInput) (Link, error) {
 func (s *LinksService) Update(id int64, input UpdateLinkInput) (Link, error) {
 	row, err := s.queries.UpdateLink(context.Background(), db.UpdateLinkParams{
 		ID:          id,
-		OriginalUrl: input.OriginalURL,
+		OriginalUrl: input.OriginalUrl,
 		ShortName:   input.ShortName,
 	})
 	if err != nil {
@@ -179,7 +179,7 @@ func (s *LinksService) Update(id int64, input UpdateLinkInput) (Link, error) {
 
 	return Link{
 		ID:          row.ID,
-		OriginalURL: row.OriginalUrl,
+		OriginalUrl: row.OriginalUrl,
 		ShortName:   row.ShortName,
 		ShortURL:    fmt.Sprintf("%s/r/%s", s.appBaseURL, row.ShortName),
 		CreatedAt:   row.CreatedAt,
@@ -229,7 +229,7 @@ func (s *LinksService) GetByShortName(shortName string) (Link, error) {
 
 	return Link{
 		ID:          row.ID,
-		OriginalURL: row.OriginalUrl,
+		OriginalUrl: row.OriginalUrl,
 		ShortName:   row.ShortName,
 		ShortURL:    fmt.Sprintf("%s/r/%s", s.appBaseURL, row.ShortName),
 		CreatedAt:   row.CreatedAt,

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"github.com/RamillIslamov/go-from-scratch-project-278/internal/service"
+	"github.com/go-playground/validator/v10"
+	"github.com/lib/pq"
 	"net/http"
 	"strconv"
 	"strings"
@@ -16,13 +18,13 @@ type LinksHandler struct {
 	service *service.LinksService
 }
 
-func NewLinksHandler(service *service.LinksService) *LinksHandler {
-	return &LinksHandler{service: service}
+type linkRequest struct {
+	OriginalUrl string `json:"original_url" binding:"required,url"`
+	ShortName   string `json:"short_name" binding:"omitempty,min=3,max=32"`
 }
 
-type linkRequest struct {
-	OriginalURL string `json:"original_url"`
-	ShortName   string `json:"short_name"`
+func NewLinksHandler(service *service.LinksService) *LinksHandler {
+	return &LinksHandler{service: service}
 }
 
 func (h *LinksHandler) ListLinks(c *gin.Context) {
@@ -66,27 +68,35 @@ func (h *LinksHandler) GetLink(c *gin.Context) {
 func (h *LinksHandler) CreateLink(c *gin.Context) {
 	var req linkRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
-		return
-	}
+		var ve validator.ValidationErrors
+		if errors.As(err, &ve) {
+			c.JSON(http.StatusUnprocessableEntity, validationErrorsResponse(err))
+			return
+		}
 
-	req.OriginalURL = strings.TrimSpace(req.OriginalURL)
-	req.ShortName = strings.TrimSpace(req.ShortName)
-
-	if req.OriginalURL == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "original_url is required"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 		return
 	}
 
 	link, err := h.service.Create(service.CreateLinkInput{
-		OriginalURL: req.OriginalURL,
+		OriginalUrl: req.OriginalUrl,
 		ShortName:   req.ShortName,
 	})
 	if err != nil {
 		if errors.Is(err, service.ErrShortNameConflict) {
-			c.JSON(http.StatusConflict, gin.H{"error": "short_name already exists"})
+			c.JSON(http.StatusUnprocessableEntity, gin.H{
+				"errors": gin.H{
+					"short_name": "short name already in use",
+				},
+			})
 			return
 		}
+
+		if response, ok := uniqueConstraintResponse(err); ok {
+			c.JSON(http.StatusUnprocessableEntity, response)
+			return
+		}
+
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create link"})
 		return
 	}
@@ -103,20 +113,18 @@ func (h *LinksHandler) UpdateLink(c *gin.Context) {
 
 	var req linkRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
-		return
-	}
+		var ve validator.ValidationErrors
+		if errors.As(err, &ve) {
+			c.JSON(http.StatusUnprocessableEntity, validationErrorsResponse(err))
+			return
+		}
 
-	req.OriginalURL = strings.TrimSpace(req.OriginalURL)
-	req.ShortName = strings.TrimSpace(req.ShortName)
-
-	if req.OriginalURL == "" || req.ShortName == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "original_url and short_name are required"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 		return
 	}
 
 	link, err := h.service.Update(id, service.UpdateLinkInput{
-		OriginalURL: req.OriginalURL,
+		OriginalUrl: req.OriginalUrl,
 		ShortName:   req.ShortName,
 	})
 	if err != nil {
@@ -124,10 +132,21 @@ func (h *LinksHandler) UpdateLink(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "link not found"})
 			return
 		}
+
 		if errors.Is(err, service.ErrShortNameConflict) {
-			c.JSON(http.StatusConflict, gin.H{"error": "short_name already exists"})
+			c.JSON(http.StatusUnprocessableEntity, gin.H{
+				"errors": gin.H{
+					"short_name": "short name already in use",
+				},
+			})
 			return
 		}
+
+		if response, ok := uniqueConstraintResponse(err); ok {
+			c.JSON(http.StatusUnprocessableEntity, response)
+			return
+		}
+
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update link"})
 		return
 	}
@@ -210,7 +229,7 @@ func (h *LinksHandler) Redirect(c *gin.Context) {
 		return
 	}
 
-	c.Redirect(http.StatusFound, link.OriginalURL)
+	c.Redirect(http.StatusFound, link.OriginalUrl)
 }
 
 func (h *LinksHandler) ListLinkVisits(c *gin.Context) {
@@ -229,4 +248,51 @@ func (h *LinksHandler) ListLinkVisits(c *gin.Context) {
 	c.Header("Accept-Ranges", "link_visits")
 	c.Header("Content-Range", fmt.Sprintf("link_visits %d-%d/%d", from, to, result.Total))
 	c.JSON(http.StatusOK, result.Visits)
+}
+
+func validationErrorsResponse(err error) gin.H {
+	result := gin.H{"errors": gin.H{}}
+
+	var ve validator.ValidationErrors
+	if errors.As(err, &ve) {
+		errorsMap := gin.H{}
+		for _, fieldErr := range ve {
+			jsonField := toSnakeCase(fieldErr.Field())
+			errorsMap[jsonField] = fieldErr.Error()
+		}
+		result["errors"] = errorsMap
+		return result
+	}
+
+	result["errors"] = gin.H{
+		"request": err.Error(),
+	}
+	return result
+}
+
+func toSnakeCase(field string) string {
+	var result []rune
+	for i, r := range field {
+		if i > 0 && r >= 'A' && r <= 'Z' {
+			result = append(result, '_')
+		}
+		if r >= 'A' && r <= 'Z' {
+			r = r - 'A' + 'a'
+		}
+		result = append(result, r)
+	}
+	return string(result)
+}
+
+func uniqueConstraintResponse(err error) (gin.H, bool) {
+	var pqErr *pq.Error
+	if errors.As(err, &pqErr) && pqErr.Code == "23505" {
+		return gin.H{
+			"errors": gin.H{
+				"short_name": "short name already in use",
+			},
+		}, true
+	}
+
+	return nil, false
 }
